@@ -2,12 +2,34 @@ import run_python_discord as PyDiscord
 
 from discord.ext import commands
 
-TOKEN = 'YOUR_TOKEN'
+TOKEN = 'ODM5NTA2MjI3MDQxNTM0MDAz.YJKpGQ.FyPqcrdUusDd2NlCxA--r37o2v8'
 PREFIX = '!'
 
 bot = commands.Bot(command_prefix=PREFIX)
 
 GLOBALconsole = PyDiscord.console()
+
+
+@bot.command()
+async def help2(ctx):
+    help_page = "help ```"
+    help_page += """
+    !ping         - if the bot is alive the response will be "pong".
+    
+    !script or !s - run the following text as a Python script. 
+                    The output will be send as a message.
+                    
+    !input or !i  - use it when a script ask for an input.
+    
+    !console      - toggle the console on your messages. 
+                    (all your following messages will be executed as python code. 
+                    except command. use "exit" to quit console)
+                    
+    !c {code}     - as "!console" but without toggle
+    
+    !clear        - clear the console."""
+    help_page += "```"
+    await ctx.send(help_page)
 
 
 @bot.event
@@ -22,14 +44,14 @@ async def ping(ctx):
 
 @bot.command()
 async def script(ctx, *, content):
-    script = PyDiscord.script(ctx, content)
-    await script.run()
+    _script = PyDiscord.script(ctx, content)
+    await _script.run()
 
 
 @bot.command()
 async def s(ctx, *, content):
-    script = PyDiscord.script(ctx, content)
-    await script.run()
+    _script = PyDiscord.script(ctx, content)
+    await _script.run()
 
 
 @bot.command()
@@ -57,14 +79,17 @@ async def console(ctx):
     out = GLOBALconsole.toggle_author(ctx)
     await ctx.send(out)
 
+
 @bot.command()
 async def c(ctx, *, content):
     await GLOBALconsole.sendANDrun(content, ctx)
+
 
 @bot.command()
 async def clear(ctx):
     GLOBALconsole.clear()
     await ctx.channel.send("Console Cleaned.")
+
 
 @bot.event
 async def on_message(message):
