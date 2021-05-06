@@ -1,0 +1,283 @@
+"""
+ACTUAL version
+"""
+import asyncio
+import os
+import socket
+import sys
+import time
+
+import subprocess
+
+HOST = '127.0.0.1'  # The server's hostname or IP address
+PORT = 65432  # The port used by the server
+
+SAVE_DIR = "subprocess/"
+
+# array of "script" class that what for an input response
+EXPECT_INPUT = []
+# author: input
+INPUTS = {}
+
+_TIME_OUT = 30
+_CURRENT_ID = 0
+_STR_INPUT = ":input:"
+
+_FUNC_ = """
+from _socket_input import hack_input
+"""
+
+
+class script:
+    def __init__(self, message, script_text):
+        global _CURRENT_ID
+
+        _CURRENT_ID += 1
+        self.ID = _CURRENT_ID
+        self.path = SAVE_DIR + "script_%s.py" % str(self.ID)
+
+        self.create_script(script_text)
+
+        self.message = message
+
+    def create_script(self, text):
+        f = open(self.path, "w")
+        text = text.replace("`Python", "")
+        text = text.replace("`", "")
+        text = text.replace("input(", "hack_input(")
+
+        text = _FUNC_ + "\n" + text
+        f.write(text)
+        f.close()
+
+    async def write_output(self, text):
+        id = self.ID
+        author = self.message.author
+        infos = "running Script by %s. ID: %d" % (author.name, id)
+        if text == "":
+            return
+        await self.message.channel.send(infos + "\n```Python\n" + text + "```")
+
+    async def wait_input(self):
+        global INPUTS
+        author = self.message.author
+        # wait for input
+        for _ in range(int(_TIME_OUT / 0.5)):
+            if INPUTS == {}:
+                await asyncio.sleep(0.5)
+            else:
+                i = INPUTS[author]
+                del INPUTS[author]
+                return i
+        # timeout (30sec) :
+        return None
+
+    async def execute(self):
+        global EXPECT_INPUT
+        shell = ''
+        channel = self.message.channel
+
+        sub_scipt = subprocess.Popen([sys.executable, self.path],
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     encoding='utf8')
+
+        process_start = time.time()
+        """is_toolong = await timeOut(process_start)
+        if is_toolong:
+            shell += "Script Killed. (too long %+.2f sec)" % (time.time() - process_start)
+            sub_scipt.kill()"""
+
+        for shell_line in iter(sub_scipt.stdout.readline, ""):
+            # si c'est une input
+            if shell_line.startswith(_STR_INPUT):
+                EXPECT_INPUT.append(self)
+
+                str_input = shell_line[: len(_STR_INPUT) + 5 + 1]  # :input:65000:
+                port = str_input[-6:-1]
+                shell += shell_line[len(_STR_INPUT) + 5 + 1:]
+                await self.write_output(shell)
+                shell = ''
+
+                start_input = time.time()
+                x = await self.wait_input()
+                if x is None:
+                    shell += "Script killed. no input provide in time (%+.2f sec)" % (time.time() - start_input)
+                    sub_scipt.kill()
+                    break
+                # socket client to send the response
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.connect((HOST, int(port)))
+                    print(shell_line[:-1], "||", x, "||", end=' ')
+                    s.sendall(bytes(x, 'utf-8'))
+                    data = s.recv(1024)
+                    # on recoit "ok" en retour normalement
+                    print(data.decode('utf-8'))
+                    EXPECT_INPUT.remove(self)
+            else:
+                shell += shell_line
+
+        err = sub_scipt.stderr.read()
+        # wait to terminate (and create "returncode")
+        sub_scipt.wait()
+        if err == '':
+            err = "\nProcess finished with exit code 0"
+        else:
+            err += "\nProcess finished with exit code " + str(sub_scipt.returncode)
+        await self.write_output(shell + err)
+        return sub_scipt.returncode
+
+    async def run(self, delete_after=True):
+        out = await self.execute()
+        if delete_after:
+            os.remove(self.path)
+        return out
+
+
+class console:
+    def __init__(self):
+        global _CURRENT_ID
+        _CURRENT_ID += 1
+        self.ID = _CURRENT_ID
+        self.path = SAVE_DIR + "console_%s.py" % str(self.ID)
+        self.authors_in_console = []
+
+    def toggle_author(self, ctx):
+        author = ctx.author
+        if author in self.authors_in_console:
+            self.authors_in_console.remove(author)
+            return author.name + " close console."
+        else:
+            self.authors_in_console.append(author)
+            return author.name + " open console."
+
+    def is_in_console(self, authors):
+        return authors in self.authors_in_console
+
+    async def write_output(self, text, message):
+        if text == "":
+            return
+        await message.channel.send("\n```Python\n" + text + "```")
+
+    def process_line(self, command):
+        type = "line"
+        if command.startswith('#') or command=="":
+            return "comment", ""
+        # we want to print value ("1==0", "3*3") but not "a = 0"
+        if command.find("(") == -1 and command.find(")") == -1:
+            if command.find("=") == -1:
+                command = "print(%s)" % command
+            elif command.find("==") >= 0:
+                command = "print(%s)" % command
+            else:
+                type = "variable"
+
+        return type, command
+
+    async def sendANDrun(self, script_text, message):
+        script_text = script_text.replace("`Python", "#")
+        script_text = script_text.replace("`", "#")
+        lines = script_text.split("\n")
+        # sinon les fonctions se termine pas
+        lines.append("#end")
+
+        # [type: command]
+        commands = []
+
+        # check for function
+        in_function = False
+        function = ""
+        for i in range(len(lines)):
+            line = lines[i]
+            if in_function:
+                if line.startswith(" "):
+                    function += "\n" + line
+                else:
+                    commands.append(["func", function])
+                    in_function = False
+                    function = ""
+                    type, command = self.process_line(line)
+                    if type == "comment":
+                        continue
+                    commands.append([type, command])
+            elif line.startswith("def"):
+                in_function = True
+                function = line
+            else:
+                type, command = self.process_line(line)
+                if type == "comment":
+                    continue
+                commands.append([type, command])
+
+        for type, command in commands:
+            shell = ""
+
+            # input() forbiden
+            if command.find("input(") != -1:
+                shell += ">> " + command + "\n"
+                shell += "input() forbidden in Console."
+                await self.write_output(shell, message)
+                continue
+
+            if type == "comment":
+                continue
+
+            if type == "func" or type == "variable":
+                self.save(type, command)
+
+            temp_path = SAVE_DIR + "/temporaire_"+str(self.ID)
+            f = open(temp_path, "w")
+            c = open(self.path, "r")
+            f.write(c.read() + "\n" + command)
+            f.close()
+
+            result = subprocess.Popen([sys.executable, temp_path],
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      encoding='utf8')
+
+            # print result in Discord
+            shell += ">> " + command + "\n"
+            shell += result.stdout.read() + "\n" + result.stderr.read()
+            result.wait()
+            os.remove(temp_path)
+            await self.write_output(shell, message)
+
+    """
+    save function and variable in console file
+    can overwrite it if they already exist
+    """
+    def save(self, type, text):
+        f = open(self.path, "r")
+        text_file = f.read()
+        if type == "func":
+            func_name = text[4:text.find("(")]
+            sep = "#::"+func_name+"::"
+            start = text_file.find(sep)
+            end = text_file.find(sep, start+1) + len(sep)
+            if start == -1:
+                text_file += "\n" + sep + "\n" + text + "\n" + sep
+            else:
+                truc = "\n" + sep + "\n" + text + "\n" + sep
+                text_file = text_file[:start] + truc + text_file[end:]
+
+        if type == "variable":
+            variable_name = text.replace(" ", "")
+            variable_name = variable_name.split("=")[0]
+            sep = "#::" + variable_name + "::"
+            # on overwrite
+            if text_file.find(variable_name) != -1:
+                start = text_file.find(variable_name)
+                end = text_file.find(sep) + len(sep)
+
+                truc = "\n" + text.replace(" ", "") + "\n" + sep
+                text_file = text_file[:start] + truc + text_file[end:]
+            # on l'ecrit juste
+            else:
+                text_file += "\n" + text.replace(" ", "") + "\n" + sep
+
+        f = open(self.path, "w")
+        text = text_file
+        f.write(text)
+        f.close()
+
+    def clear(self):
+        os.remove(self.path)
