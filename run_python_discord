@@ -1,6 +1,3 @@
-"""
-ACTUAL version
-"""
 import asyncio
 import os
 import socket
@@ -96,6 +93,7 @@ class script:
                 port = str_input[-6:-1]
                 shell += shell_line[len(_STR_INPUT) + 5 + 1:]
                 await self.write_output(shell)
+                await self.message.channel.send("```input expected. Use !input {your_input} or !i {your_input}.```")
                 shell = ''
 
                 start_input = time.time()
@@ -138,7 +136,13 @@ class console:
         global _CURRENT_ID
         _CURRENT_ID += 1
         self.ID = _CURRENT_ID
+
         self.path = SAVE_DIR + "console_%s.py" % str(self.ID)
+        if not os.path.exists(self.path):
+            f = open(self.path, "w")
+            f.write("#python console")
+            f.close()
+
         self.authors_in_console = []
 
     def toggle_author(self, ctx):
@@ -148,7 +152,7 @@ class console:
             return author.name + " close console."
         else:
             self.authors_in_console.append(author)
-            return author.name + " open console."
+            return author.name + " open console. (use 'exit' or '!console' to quit)"
 
     def is_in_console(self, authors):
         return authors in self.authors_in_console
