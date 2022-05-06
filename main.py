@@ -2,7 +2,7 @@ import run_python_discord as PyDiscord
 
 from discord.ext import commands
 
-TOKEN = 'ODM5NTA2MjI3MDQxNTM0MDAz.YJKpGQ.FyPqcrdUusDd2NlCxA--r37o2v8'
+TOKEN = 'Discord_TOKEN'
 PREFIX = '!'
 
 bot = commands.Bot(command_prefix=PREFIX)
